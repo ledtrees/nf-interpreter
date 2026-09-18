@@ -27,18 +27,12 @@ inline void CPU_Reset()
 #endif
 };
 
-// LEDTREES: on ESP32 the "proprietary bootloader" is the ROM download mode, and this is
-// the only way into it without hands. The classic esptool auto-reset drives EN and IO0
-// over DTR/RTS of an external UART bridge; on a board that talks through the chip's own
-// USB those lines are virtual and wired to nothing, so the board has to be held in BOOT
-// by a person. FORCE_DOWNLOAD_BOOT lives in the RTC domain, survives a software reset and
-// makes the ROM enter download mode regardless of IO0.
+// LEDTREES: the proprietary bootloader of an ESP32 is the ROM download mode.
+// FORCE_DOWNLOAD_BOOT survives a software reset and takes the ROM there regardless of the
+// strapping pin; a power cycle clears it. The reset itself is left to the caller.
 //
-// Resetting is left to the caller: the debugger answers the command first and reboots
-// afterwards (CLR_RT_ExecutionEngine::Reboot sets RebootPending), so the client learns
-// whether the request was accepted. The other caller, CLRStartup under
-// RevertToBooterOnFault, never fires here - app_main zeroes CLR_SETTINGS and the flag
-// stays false, so a faulting CLR still reboots into the application, not into the ROM.
+// CLRStartup calls this under RevertToBooterOnFault too, but app_main zeroes CLR_SETTINGS,
+// so a faulting CLR still reboots into the application, not into the ROM.
 #if defined(RTC_CNTL_OPTION1_REG) && defined(RTC_CNTL_FORCE_DOWNLOAD_BOOT)
 bool RequestToLaunchProprietaryBootloader()
 {
