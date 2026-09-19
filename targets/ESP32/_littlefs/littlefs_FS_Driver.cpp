@@ -9,6 +9,8 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 #include <esp_memory_utils.h>
+#include <esp_rom_sys.h>
+#include <errno.h>
 #include <stdio.h>
 
 #if (HAL_USE_SDC == TRUE)
@@ -262,6 +264,8 @@ HRESULT LITTLEFS_FS_Driver::Open(const VOLUME_ID *volume, const char *path, void
         // file doesn't exist, create and open for R/W
         flags = "w+";
     }
+    // clear errno: a stale value would be reported as the reason of this call
+    errno = 0;
     fileHandle->file = fopen(normalizedPath, flags);
     if (fileHandle->file != NULL)
     {
@@ -281,6 +285,11 @@ HRESULT LITTLEFS_FS_Driver::Open(const VOLUME_ID *volume, const char *path, void
     }
     else
     {
+        // Failures reach managed code as a bare CLR_E_FILE_IO, so the reason is
+        // printed here. esp_rom_printf and not ESP_LOGE: RTM builds set the maximum
+        // log level to none and the macros are compiled out.
+        esp_rom_printf("fsdrv: fopen('%s', \"%s\") failed: errno %d\n", normalizedPath, flags, errno);
+
         NANOCLR_SET_AND_LEAVE(CLR_E_FILE_IO);
     }
 
