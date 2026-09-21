@@ -79,8 +79,7 @@ inline bool RequestToLaunchNanoBooter(int32_t errorCode)
 
 // Request to launch proprietary bootloader
 // Returns false in case it's not supported (which is considered the default).
-// Implemented as "weak" to allow it to be replaced with "hard" implementation at platform level:
-// targets without nanoBooter can still have a bootloader of their own (ESP32: the ROM one).
+// Implemented as "weak" to allow it to be replaced with "hard" implementation at platform level.
 __nfweak bool RequestToLaunchProprietaryBootloader()
 {
 #if CONFIG_NF_TARGET_HAS_NANOBOOTER

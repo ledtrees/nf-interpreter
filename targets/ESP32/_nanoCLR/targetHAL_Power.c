@@ -6,13 +6,15 @@
 #include <target_platform.h>
 #include <esp32_idf.h>
 #include <nanoHAL_v2.h>
-#include <nanoHAL_Boot.h>
 
-// LEDTREES: unconditional, the download-boot request below needs it too. Chips whose
-// RTC block was replaced by LP_AON (C6, H2, P4) have no such header and keep the weak
-// default from src/HAL/nanoHAL_Boot.c.
-#if __has_include(<soc/rtc_cntl_reg.h>)
+// the classic ESP32 is absent because it has no FORCE_DOWNLOAD_BOOT bit
+#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S3)
 #include <soc/rtc_cntl_reg.h>
+#elif defined(CONFIG_IDF_TARGET_ESP32C5) || defined(CONFIG_IDF_TARGET_ESP32C6) ||                                      \
+    defined(CONFIG_IDF_TARGET_ESP32C61) || defined(CONFIG_IDF_TARGET_ESP32H2)
+#include <soc/lp_aon_reg.h>
+#elif defined(CONFIG_IDF_TARGET_ESP32P4)
+#include <soc/lp_system_reg.h>
 #endif
 
 inline void CPU_Reset()
@@ -27,16 +29,20 @@ inline void CPU_Reset()
 #endif
 };
 
-// LEDTREES: the proprietary bootloader of an ESP32 is the ROM download mode.
-// FORCE_DOWNLOAD_BOOT survives a software reset and takes the ROM there regardless of the
-// strapping pin; a power cycle clears it. The reset itself is left to the caller.
-//
-// CLRStartup calls this under RevertToBooterOnFault too, but app_main zeroes CLR_SETTINGS,
-// so a faulting CLR still reboots into the application, not into the ROM.
-#if defined(RTC_CNTL_OPTION1_REG) && defined(RTC_CNTL_FORCE_DOWNLOAD_BOOT)
+// The proprietary bootloader of an ESP32 is the ROM download mode. The bit lives in the always-on
+// domain, so it survives the reset that the caller performs next; a power cycle clears it.
+#if defined(RTC_CNTL_OPTION1_REG) || defined(LP_AON_SYS_CFG_REG) || defined(LP_SYSTEM_REG_SYS_CTRL_REG)
 bool RequestToLaunchProprietaryBootloader()
 {
+#if defined(RTC_CNTL_OPTION1_REG)
     REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+#elif defined(LP_AON_SYS_CFG_REG)
+    // on C5 this is a two bit field where 01 is the UART and USB download
+    REG_SET_FIELD(LP_AON_SYS_CFG_REG, LP_AON_FORCE_DOWNLOAD_BOOT, 1);
+#else
+    REG_SET_BIT(LP_SYSTEM_REG_SYS_CTRL_REG, LP_SYSTEM_REG_FORCE_DOWNLOAD_BOOT);
+#endif
+
     return true;
 }
 #endif
