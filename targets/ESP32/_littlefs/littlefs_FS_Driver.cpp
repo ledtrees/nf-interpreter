@@ -7,21 +7,20 @@
 #include "littlefs_FS_Driver.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <errno.h>
+#include <esp_rom_sys.h>
+#include <sdkconfig.h>
+
+#if CONFIG_SPIRAM
 #include <esp_heap_caps.h>
 #include <esp_memory_utils.h>
-#include <esp_rom_sys.h>
-#include <errno.h>
-#include <stdio.h>
+#endif
 
 #if (HAL_USE_SDC == TRUE)
 #include <sdmmc_cmd.h>
 
-// The mounted card from Target_System_IO_FileSystem.c: its CSD was read at
-// mount time, so the capacity comes from there instantly - unlike a calculation
-// over the FAT, which runs into f_getfree() (see GetSizeInfo).
-// cardDriveLetter is the volume this card belongs to: there is a single card
-// per system, and without that check a second slot would report the
-// characteristics of the first card.
+// the mounted card and the volume it belongs to, from Target_System_IO_FileSystem.c
 extern "C" sdmmc_card_t *card;
 extern "C" char cardDriveLetter;
 #endif
@@ -31,32 +30,46 @@ extern FileSystemVolume *g_FS_Volumes;
 static int32_t RemoveAllFiles(const char *path);
 static int NormalizePath(const char *root, const char *path, char *buffer, size_t bufferSize);
 
-// NOTE: this "littlefs" driver is in fact a POSIX/VFS wrapper (fopen/fwrite),
-// and due to its interface Name being "FATFS" (upstream copy/paste) it also
-// serves the SD card volume (D:) mounted through FS_MountVolume("...", "FATFS").
-//
-// Bounce buffer in internal RAM for SD transfers of PSRAM-backed buffers.
-// The SDMMC host on ESP32-S3 can't DMA from/to external RAM: for a PSRAM
-// buffer sdmmc_cmd falls back to single-sector transfers through a 512-byte
-// temp buffer (~2 ms per sector), capping file IO at ~150-250 KB/s. The CLR
-// managed heap lives in PSRAM, so every buffer coming from managed code hits
-// that path. Copying through this internal-RAM buffer restores multi-sector
-// DMA; the extra memcpy is negligible next to the bus transfer.
-// FS driver calls are serialized by the CLR (SYNC_IO), one buffer is enough.
-static uint8_t *s_ioBounceBuffer = NULL;
-static const int IO_BOUNCE_BUFFER_SIZE = 16 * 1024;
+static const int c_ioBounceBufferSize = 16 * 1024;
 
-static uint8_t *GetIoBounceBuffer()
+#if CONFIG_SPIRAM
+
+// transfers below one sector are left to the stdio buffer, the bounce path would only add an ftell
+static const int c_ioBounceMinTransfer = 512;
+
+// bounce buffer in internal RAM, for transfers of buffers backed by external RAM
+static uint8_t *s_ioBounceBuffer = NULL;
+
+// NULL when the transfer needs no bouncing, or when there is no internal RAM left: the caller then
+// takes the direct path
+static uint8_t *GetIoBounceBuffer(const void *buffer, int size)
 {
+    if (size < c_ioBounceMinTransfer || !esp_ptr_external_ram(buffer))
+    {
+        return NULL;
+    }
+
     if (s_ioBounceBuffer == NULL)
     {
         s_ioBounceBuffer =
-            (uint8_t *)heap_caps_malloc(IO_BOUNCE_BUFFER_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+            (uint8_t *)heap_caps_malloc(c_ioBounceBufferSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
     }
 
-    // NULL (no internal RAM left) => caller falls back to the direct slow path
     return s_ioBounceBuffer;
 }
+
+#else
+
+// no external RAM on this target, a transfer never needs bouncing
+static uint8_t *GetIoBounceBuffer(const void *buffer, int size)
+{
+    (void)buffer;
+    (void)size;
+
+    return NULL;
+}
+
+#endif
 
 bool LITTLEFS_FS_Driver::LoadMedia(const void *driverInterface)
 {
@@ -127,30 +140,47 @@ HRESULT LITTLEFS_FS_Driver::Format(const VOLUME_ID *volume, const char *volumeLa
 
 HRESULT LITTLEFS_FS_Driver::GetSizeInfo(const VOLUME_ID *volume, int64_t *totalSize, int64_t *totalFreeSpace)
 {
-    // -1 means "unknown", which is how the caller reads it (UpdateVolumeInfo
-    // puts a zero into the managed field if we return an error, so S_OK is
-    // always returned here).
+    // FATFS *fsPtr = &fs;
+    // char buffer[3];
+    // DWORD freeClusters, freeSectors, totalSectors;
+
+    // FATFS *fs = GetFatFsByVolumeId(volume, false);
+
+    // FileSystemVolume *currentVolume = FileSystemVolumeList::FindVolume(volume->volumeId);
+
+    // f_chdrive(currentVolume->m_rootName);
+
+    // // this call is prone to take a long time, thus hitting the watchdog, therefore we are skipping this for now
+    // //     // get free clusters
+    // //     f_getfree(buffer, &freeClusters, &fsPtr);
+
+    // //     // Get total sectors and free sectors
+    // //     totalSectors = (fs.n_fatent - 2) * fs.csize;
+    // //     freeSectors = freeClusters * fs.csize;
+
+    // // #if FF_MAX_SS != FF_MIN_SS
+    // //     *totalSize = (int64_t)totalSectors * fs.ssize;
+    // //     *totalFreeSpace = (int64_t)freeSectors * fs.ssize;
+    // // #else
+    // //     *totalSize = (int64_t)totalSectors * FF_MAX_SS;
+    // //     *totalFreeSpace = (int64_t)freeSectors * FF_MAX_SS;
+    // // #endif
+
+    // -1 means "unknown" to the caller
     *totalSize = -1;
 
-    // Free space is deliberately left unknown: the only way to it is
-    // f_getfree(), which walks the FAT and on large cards takes long enough to
-    // trip the watchdog. The card capacity needs no such walk, so it is
-    // reported.
+    // free space would need f_getfree(), which walks the FAT and trips the watchdog on large cards
     *totalFreeSpace = -1;
 
 #if (HAL_USE_SDC == TRUE)
 
-    // The driver also serves the internal flash (I:/J:), which has no CSD, so
-    // the card capacity only makes sense for the volume the card is actually
-    // mounted on (there can be several slots but only one card).
+    // the driver also serves the internal flash, which has no card behind it
     FileSystemVolume *currentVolume = FileSystemVolumeList::FindVolume(volume->volumeId);
 
     if (currentVolume != NULL && card != NULL && cardDriveLetter != 0 &&
         currentVolume->m_rootName[0] == cardDriveLetter)
     {
-        // csd.capacity is the number of sectors and csd.sector_size their size:
-        // this is the physical capacity of the card (what is printed on it), not
-        // the capacity of the FAT volume.
+        // physical capacity of the card, not of the file system on it
         *totalSize = (int64_t)card->csd.capacity * card->csd.sector_size;
     }
 
@@ -212,7 +242,7 @@ HRESULT LITTLEFS_FS_Driver::GetVolumeLabel(const VOLUME_ID *volume, char *volume
 
 //--//
 
-HRESULT LITTLEFS_FS_Driver::Open(const VOLUME_ID *volume, const char *path, void *&handle)
+HRESULT LITTLEFS_FS_Driver::Open(const VOLUME_ID *volume, const char *path, uint32_t access, void *&handle)
 {
     NANOCLR_HEADER();
 
@@ -254,27 +284,27 @@ HRESULT LITTLEFS_FS_Driver::Open(const VOLUME_ID *volume, const char *path, void
     fileExists = (stat(normalizedPath, &info) == FR_OK);
 #endif
 
+    // this goes through the VFS layer, which has no attribute support, so read-only isn't enforced here
     if (fileExists)
     {
-        // file already exists, open for R/W
-        flags = "r+";
+        // file already exists, open it with the requested access ("r+" is the only mode that writes without
+        // truncating)
+        flags = (access == FileAccess_Read) ? "r" : "r+";
     }
     else
     {
-        // file doesn't exist, create and open for R/W
-        flags = "w+";
+        // file doesn't exist, create it
+        flags = (access == FileAccess_Write) ? "w" : "w+";
     }
+
     // clear errno: a stale value would be reported as the reason of this call
     errno = 0;
+
     fileHandle->file = fopen(normalizedPath, flags);
     if (fileHandle->file != NULL)
     {
-        // NOTE: keep the stream BUFFERED (default). newlib only has a direct
-        // large-transfer path in fread for buffered streams — with _IONBF it
-        // degrades to byte-sized refills (~60 us/byte). Large fwrite/fread on a
-        // buffered stream flush the tiny stdio buffer and then transfer
-        // directly from the caller's pointer, so the ftell-based alignment in
-        // Read()/Write() stays exact.
+        // NOTE: keep the stream BUFFERED (default). newlib only takes the direct large transfer path
+        // on a buffered stream; with _IONBF it degrades to byte sized refills.
 
         // store the handle
         handle = fileHandle;
@@ -285,9 +315,8 @@ HRESULT LITTLEFS_FS_Driver::Open(const VOLUME_ID *volume, const char *path, void
     }
     else
     {
-        // Failures reach managed code as a bare CLR_E_FILE_IO, so the reason is
-        // printed here. esp_rom_printf and not ESP_LOGE: RTM builds set the maximum
-        // log level to none and the macros are compiled out.
+        // failures reach managed code as a bare CLR_E_FILE_IO, so the reason is printed here.
+        // esp_rom_printf and not ESP_LOGE: RTM builds compile the log macros out
         esp_rom_printf("fsdrv: fopen('%s', \"%s\") failed: errno %d\n", normalizedPath, flags, errno);
 
         NANOCLR_SET_AND_LEAVE(CLR_E_FILE_IO);
@@ -345,38 +374,35 @@ HRESULT LITTLEFS_FS_Driver::Read(void *handle, uint8_t *buffer, int size, int *b
 
     fileHandle = (LITTLEFS_FileHandle *)handle;
 
-    // Direction change barrier, write to read (ANSI C, see lastOp in the
-    // header): an fseek to the current position flushes the write buffer and
-    // makes the read legal
-    if (fileHandle->lastOp == 2)
+    if (fileHandle->lastOp == LITTLEFS_LastOperation_Write && fseek(fileHandle->file, 0, SEEK_CUR) != 0)
     {
-        fseek(fileHandle->file, 0, SEEK_CUR);
+        NANOCLR_SET_AND_LEAVE(CLR_E_FILE_IO);
     }
-    fileHandle->lastOp = 1;
 
-    // PSRAM target => read through the internal-RAM bounce buffer (see above).
-    // The pad keeps the pointer FatFs uses for direct whole-sector transfers
-    // 4-byte aligned: after topping up the current partial sector it advances
-    // our pointer by headBytes = (-pos) mod 512, so data goes to bounce + (pos & 3).
-    // Small operations (< 512) go straight through: the stdio buffer serves
-    // them without touching the medium, while the bounce path would add an
-    // ftell on every call.
-    if (size >= 512 && esp_ptr_external_ram(buffer))
-    {
-        readBounce = GetIoBounceBuffer();
-    }
+    fileHandle->lastOp = LITTLEFS_LastOperation_Read;
+
+    readBounce = GetIoBounceBuffer(buffer, size);
 
     if (readBounce != NULL)
     {
         int total = 0;
+
         while (total < size)
         {
-            int pad = (int)(ftell(fileHandle->file) & 3);
+            long filePosition = ftell(fileHandle->file);
+
+            if (filePosition < 0)
+            {
+                NANOCLR_SET_AND_LEAVE(CLR_E_FILE_IO);
+            }
+
+            // keeps the pointer handed to the whole sector transfers 4 byte aligned
+            int pad = (int)(filePosition & 3);
 
             int chunk = size - total;
-            if (chunk > IO_BOUNCE_BUFFER_SIZE - pad)
+            if (chunk > c_ioBounceBufferSize - pad)
             {
-                chunk = IO_BOUNCE_BUFFER_SIZE - pad;
+                chunk = c_ioBounceBufferSize - pad;
             }
 
             unsigned int part = fread(readBounce + pad, 1, chunk, fileHandle->file);
@@ -388,7 +414,7 @@ HRESULT LITTLEFS_FS_Driver::Read(void *handle, uint8_t *buffer, int size, int *b
 
             if (part < (unsigned int)chunk)
             {
-                // EOF or an error - the checks below decide
+                // end of file or an error, the checks below decide which
                 break;
             }
         }
@@ -441,34 +467,35 @@ HRESULT LITTLEFS_FS_Driver::Write(void *handle, uint8_t *buffer, int size, int *
 
     fileHandle = (LITTLEFS_FileHandle *)handle;
 
-    // Direction change barrier, read to write (ANSI C, see lastOp in the
-    // header): without a seek between fread and fwrite, stdio writes past the
-    // logical position
-    if (fileHandle->lastOp == 1)
+    if (fileHandle->lastOp == LITTLEFS_LastOperation_Read && fseek(fileHandle->file, 0, SEEK_CUR) != 0)
     {
-        fseek(fileHandle->file, 0, SEEK_CUR);
+        NANOCLR_SET_AND_LEAVE(CLR_E_FILE_IO);
     }
-    fileHandle->lastOp = 2;
 
-    // PSRAM source => write through the internal-RAM bounce buffer (see above);
-    // pad = (pos & 3) keeps the direct whole-sector pointer 4-byte aligned.
-    // Small writes (< 512) go straight through the stdio buffer (see Read).
-    if (size >= 512 && esp_ptr_external_ram(buffer))
-    {
-        writeBounce = GetIoBounceBuffer();
-    }
+    fileHandle->lastOp = LITTLEFS_LastOperation_Write;
+
+    writeBounce = GetIoBounceBuffer(buffer, size);
 
     if (writeBounce != NULL)
     {
         int total = 0;
+
         while (total < size)
         {
-            int pad = (int)(ftell(fileHandle->file) & 3);
+            long filePosition = ftell(fileHandle->file);
+
+            if (filePosition < 0)
+            {
+                NANOCLR_SET_AND_LEAVE(CLR_E_FILE_IO);
+            }
+
+            // keeps the pointer handed to the whole sector transfers 4 byte aligned
+            int pad = (int)(filePosition & 3);
 
             int chunk = size - total;
-            if (chunk > IO_BOUNCE_BUFFER_SIZE - pad)
+            if (chunk > c_ioBounceBufferSize - pad)
             {
-                chunk = IO_BOUNCE_BUFFER_SIZE - pad;
+                chunk = c_ioBounceBufferSize - pad;
             }
 
             memcpy(writeBounce + pad, buffer + total, chunk);
@@ -496,9 +523,7 @@ HRESULT LITTLEFS_FS_Driver::Write(void *handle, uint8_t *buffer, int size, int *
         NANOCLR_SET_AND_LEAVE(CLR_E_FILE_IO);
     }
 
-    // No fflush here on purpose: flushing on EVERY write costs an SD round-trip
-    // and capped streaming writes; durability is the caller's contract —
-    // FileStream.Flush()/Close() still flush through Flush()/Close() below.
+    fflush(fileHandle->file);
 
     *bytesWritten = writeCount;
 
@@ -562,8 +587,7 @@ HRESULT LITTLEFS_FS_Driver::Seek(void *handle, int64_t offset, uint32_t origin, 
         return CLR_E_FILE_IO;
     }
 
-    // a seek is a legal barrier for both directions (see lastOp)
-    fileHandle->lastOp = 0;
+    fileHandle->lastOp = LITTLEFS_LastOperation_None;
 
     // get the current position
     *position = ftell(fileHandle->file);
@@ -613,8 +637,7 @@ HRESULT LITTLEFS_FS_Driver::GetLength(void *handle, int64_t *length)
         return CLR_E_FILE_IO;
     }
 
-    // ended with a seek - a barrier for both directions (see lastOp)
-    fileHandle->lastOp = 0;
+    fileHandle->lastOp = LITTLEFS_LastOperation_None;
 
     return S_OK;
 }
@@ -653,15 +676,14 @@ HRESULT LITTLEFS_FS_Driver::SetLength(void *handle, int64_t length)
         return CLR_E_FILE_IO;
     }
 
-    // ending with a seek - a barrier for both directions (see lastOp)
-    fileHandle->lastOp = 0;
-
     // Restore file position
     if (fseek(fileHandle->file, currentPosition, SEEK_SET) != 0)
     {
         // Handle error
         return CLR_E_FILE_IO;
     }
+
+    fileHandle->lastOp = LITTLEFS_LastOperation_None;
 
     // Synchronize the file state
     fflush(fileHandle->file);
