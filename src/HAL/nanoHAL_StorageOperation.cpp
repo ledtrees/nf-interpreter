@@ -11,7 +11,6 @@
 #include <nanoPAL_FileSystem.h>
 #include <nanoCLR_FileStream.h>
 #include <nanoHAL_StorageOperation.h>
-#include <nf_sys_io_filesystem.h>
 #include <WireProtocol_MonitorCommands.h>
 
 #if CONFIG_NF_FEATURE_HAS_ACCESSIBLE_STORAGE
@@ -88,7 +87,7 @@ uint32_t HAL_StorageOperation(uint8_t operation, uint32_t dataLength, uint32_t o
         }
 
         // open the file (creates it, if it doesn't exist)
-        if (FAILED(volume->Open(relativePath, FileAccess_Write, fileHandle)))
+        if (FAILED(volume->Open(relativePath, fileHandle)))
         {
             errorCode = StorageOperationErrorCode::WriteError;
             goto done;
@@ -118,7 +117,7 @@ uint32_t HAL_StorageOperation(uint8_t operation, uint32_t dataLength, uint32_t o
         int bytesWritten = 0;
 
         // open the file
-        if (FAILED(volume->Open(relativePath, FileAccess_Write, fileHandle)))
+        if (FAILED(volume->Open(relativePath, fileHandle)))
         {
             errorCode = StorageOperationErrorCode::WriteError;
             goto done;

@@ -148,9 +148,7 @@ extern "C"
     typedef bool (*STREAM_INITIALIZEVOLUME)(const VOLUME_ID * /*volume*/, const char * /*path*/);
     typedef bool (*STREAM_UNINITIALIZEVOLUME)(const VOLUME_ID * /*volume*/);
     typedef STREAM_DRIVER_DETAILS *(*STREAM_DRIVERDETAILS)(const VOLUME_ID * /*volume*/);
-    // access is a System.IO.FileAccess value (see FileAccess in nf_sys_io_filesystem.h)
-    typedef HRESULT (
-        *STREAM_OPEN)(const VOLUME_ID * /*volume*/, const char * /*path*/, uint32_t /*access*/, void *& /*handle*/);
+    typedef HRESULT (*STREAM_OPEN)(const VOLUME_ID * /*volume*/, const char * /*path*/, void *& /*handle*/);
     typedef HRESULT (*STREAM_CLOSE)(void * /*handle*/);
     typedef HRESULT (*STREAM_READ)(void * /*handle*/, uint8_t * /*buffer*/, int /*count*/, int * /*readCount*/);
     typedef HRESULT (*STREAM_WRITE)(void * /*handle*/, uint8_t * /*buffer*/, int /*count*/, int * /*writtenCount*/);
@@ -360,12 +358,12 @@ extern "C"
             return m_streamDriver->DriverDetails(&m_volumeId);
         }
 
-        HRESULT Open(const char *path, uint32_t access, void *&handle)
+        HRESULT Open(const char *path, void *&handle)
         {
             // Use ValidateStreamDriver() to validate, this assert is for debug purpose only
             _ASSERTE(m_streamDriver && m_streamDriver->Open);
 
-            return m_streamDriver->Open(&m_volumeId, path, access, handle);
+            return m_streamDriver->Open(&m_volumeId, path, handle);
         }
 
         HRESULT Close(void *handle)
