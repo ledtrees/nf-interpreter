@@ -4897,17 +4897,9 @@ uint32_t lwip_socket_get_err(int s)
     {
         return EBADF;
     }
-    // sock->err is only written by the socket API calls (sock_set_errno), never by the
-    // netconn events, so an asynchronous connection failure (RST, abort, timeout) after a
-    // non-blocking connect is left sitting in the netconn. Without reporting it from there,
-    // the stale EINPROGRESS would be reported forever (SocketException 10035) instead of
-    // the real cause.
-    // The pending error is only PEEKED: netconn_err() would clear it, and then the next
-    // send() would fail with ENOTCONN instead of ECONNRESET and SO_ERROR would read 0.
-    // It stays pending until recv/send/SO_ERROR consume it, recv/send then record it in
-    // sock->err themselves.
-    // conn is NULL once the socket is freed; while get_socket() holds it, a concurrent
-    // close only defers the free (LWIP_NETCONN_FULLDUPLEX), so conn stays valid here.
+
+    // an asynchronous failure (RST, abort, timeout) stays pending in the netconn and never reaches sock->err.
+    // Peek it rather than netconn_err(), which would clear it for the recv/send that follows.
     err = sock->err;
     conn = sock->conn;
     if (conn != NULL)
