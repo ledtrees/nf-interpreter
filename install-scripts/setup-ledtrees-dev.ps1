@@ -141,6 +141,8 @@ $UH = $ToolsPath  # literal here (settings.json is generated per machine, no nee
 $settings = [ordered]@{
     'idf.espIdfPath'      = '${env:IDF_PATH}'
     'idf.espIdfPathWin'   = $IdfPath
+    # the extension remembers the selected setup here; without it the setup wizard reopens
+    'idf.currentSetup'    = $IdfFwd
     'idf.pythonBinPathWin'= (Join-Path $pythonEnvPath 'Scripts\python.exe')
     'idf.toolsPathWin'    = $ToolsPath
     'idf.customExtraPaths'= $customExtraPaths
