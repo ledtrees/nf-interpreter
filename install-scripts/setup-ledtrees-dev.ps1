@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Reproduces the whole toolchain on a new computer:
-      1. Clones ESP-IDF v5.5.4 (the version this fork requires) if missing.
+      1. Clones ESP-IDF v5.5.5 (the version this fork requires) if missing.
       2. Installs its toolchains + Python env (idf5.5) and adds kconfiglib.
       3. Installs the nanoff firmware flasher (dotnet global tool).
       4. Generates the machine-specific config files that are gitignored:
@@ -24,7 +24,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$IdfTag    = 'v5.5.4',
+    [string]$IdfTag    = 'v5.5.5',
     [string]$IdfBase   = (Join-Path $env:USERPROFILE 'esp'),
     [string]$ToolsPath = (Join-Path $env:USERPROFILE '.espressif'),
     [switch]$SkipIdfInstall,
@@ -38,7 +38,7 @@ function Ok($m)   { Write-Host "    $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "    $m" -ForegroundColor Yellow }
 
 $RepoRoot = Split-Path $PSScriptRoot -Parent
-$IdfPath  = Join-Path (Join-Path $IdfBase $IdfTag) 'esp-idf'          # ...\esp\v5.5.4\esp-idf
+$IdfPath  = Join-Path (Join-Path $IdfBase $IdfTag) 'esp-idf'          # ...\esp\v5.5.5\esp-idf
 $IdfFwd   = ($IdfPath -replace '\\','/')                              # forward-slash form for CMake match
 
 Info "Repo:       $RepoRoot"

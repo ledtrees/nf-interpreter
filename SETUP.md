@@ -1,13 +1,13 @@
 # Настройка dev-окружения LEDTREES на новом компьютере
 
-Этот форк собирается под **ESP-IDF v5.5.4** (таргеты `ESP32_LEDTREES_*`, ESP32-S3).
+Этот форк собирается под **ESP-IDF v5.5.5** (таргеты `ESP32_LEDTREES_*`, ESP32-S3).
 Бо́льшая часть окружения машинно-специфична (абсолютные пути, имя пользователя,
 драйвер), поэтому переносится не копированием файлов, а одним скриптом.
 
 ## Что уже в репозитории (переносится через git)
 
 - `.vscode/launch.json` и `.vscode/tasks.json` — универсальные (через `${userHome}`),
-  работают на любой машине после установки IDF 5.5.4:
+  работают на любой машине после установки IDF 5.5.5:
   - **Run and Debug → `nanoCLR: Flash + Monitor`** — прошивка + монитор (спросит COM-порт).
   - **`nanoCLR: Flash + Debug` / `Attach + Debug`** — JTAG-отладка нативного кода.
   - Задачи `nanoCLR: Flash (esptool)` / `nanoCLR: Monitor` / `nanoCLR: Flash + Monitor`
@@ -16,9 +16,9 @@
 
 ## Что генерируется на каждой машине (gitignored)
 
-- ESP-IDF v5.5.4 в `%USERPROFILE%\esp\v5.5.4\esp-idf` + тулчейны в `%USERPROFILE%\.espressif`
+- ESP-IDF v5.5.5 в `%USERPROFILE%\esp\v5.5.5\esp-idf` + тулчейны в `%USERPROFILE%\.espressif`
 - `config/user-tools-repos.json`, `config/user-prefs.json`
-- `.vscode/settings.json` (пути IDF, `cmake.environment` — окружение 5.5.4 для CMake Tools)
+- `.vscode/settings.json` (пути IDF, `cmake.environment` — окружение 5.5.5 для CMake Tools)
 - Переменные окружения пользователя (HKCU) + PATH
 - `nanoff` (dotnet global tool)
 
@@ -37,7 +37,7 @@
 git clone <repo-url> ; cd nf-interpreter ; git checkout dev
 powershell -ExecutionPolicy Bypass -File install-scripts\setup-ledtrees-dev.ps1
 ```
-Скрипт склонирует IDF 5.5.4 (несколько ГБ), поставит тулчейны + `kconfiglib` + `nanoff`,
+Скрипт склонирует IDF 5.5.5 (несколько ГБ), поставит тулчейны + `kconfiglib` + `nanoff`,
 сгенерирует конфиги под эту машину и пропишет переменные окружения. Повторный запуск
 безопасен (идемпотентен). Флаги: `-SkipIdfInstall`, `-SkipNanoff`, `-SkipEnv`.
 
