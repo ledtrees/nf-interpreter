@@ -125,7 +125,12 @@ CONFIG_SPIRAM_BOOT_INIT=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MEMTEST=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
-# CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP is not set
+# LEDTREES: Wi-Fi and lwIP buffers go to PSRAM first, internal RAM only as a
+# fallback. With the 31680 TCP window/send buffer below, every socket can pin
+# ~22-31 KB of internal RAM; a few concurrent connections (program serving on
+# 44000, admin over HTTP) drained the ~99 KB of free internal RAM on MAIN down to
+# 12 bytes, and the HTTP listener died on Accept failures. PSRAM has >1 MB free.
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 # CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY is not set
 # end of SPI RAM config
