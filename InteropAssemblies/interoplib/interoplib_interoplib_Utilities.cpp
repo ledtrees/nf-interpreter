@@ -7,17 +7,29 @@
 // ledtrees-idf-components repository, components/ledtrees_sysinfo. What is left
 // here is unwrapping the managed arrays and validating their sizes.
 //
-// The EXCEPTION is NativeWifiReconnect: it depends on the network module of
-// nf-interpreter itself (NF_ESP32_IsToConnect from NF_ESP32_Network.h), so it is
-// not moved into the component and its implementation stays here in full.
+// The EXCEPTIONS depend on nf-interpreter itself, so they are not moved into the
+// component and their implementation stays here in full:
+// - NativeWifiReconnect uses the network module (NF_ESP32_IsToConnect from
+//   NF_ESP32_Network.h);
+// - NativeSdFormatForeign formats through FatFs, which this repository configures
+//   with its own ffconf.h (targets/ESP32/<board>/ffconf.h); the include path to it
+//   is given to the FatFs target only, so the component cannot see it. Reading and
+//   classifying the card is still the component's job.
 //
 //-----------------------------------------------------------------------------
 
 #include "interoplib.h"
 #include "interoplib_interoplib_Utilities.h"
 
+#include <diskio_impl.h>
+#include <diskio_sdmmc.h>
+#include <esp_heap_caps.h>
+#include <esp_log.h>
 #include <esp_wifi.h>
+#include <ff.h>
 #include <ledtrees_sysinfo.h>
+#include <sdmmc_cmd.h>
+#include <string.h>
 
 // NF_ESP32_IsToConnect is the auto-reconnect flag of the network module
 // (NF_ESP32_Wireless.cpp): while it is set, the WIFI_EVENT_STA_DISCONNECTED
@@ -183,4 +195,131 @@ bool Utilities::NativeEraseCoredump( HRESULT &hr )
 {
     hr = S_OK;
     return lt_sys_coredump_erase();
+}
+
+// ---------------------------------------------------------------------------
+// Formatting a card with a foreign layout (Storage.Init on the managed side).
+// ---------------------------------------------------------------------------
+
+// What was done to the card - the second byte of the result, the managed
+// SdFormat* constants.
+#define SD_FORMAT_SKIPPED 0
+#define SD_FORMAT_DONE 1
+#define SD_FORMAT_FAILED 2
+#define SD_FORMAT_DONE_SMALL 3 // too small for FAT32 - FatFs made FAT12/16
+
+// The allocation unit is the 16 KB the nanoFramework mount uses
+// (Target_System_IO_FileSystem.c). The work buffer sets how many sectors f_mkfs
+// writes per command when it clears the FAT area - tens of MB on a large card,
+// so the 4 KB minimum would turn seconds into minutes. DMA capable, otherwise the
+// SDMMC driver bounces it through its own buffer sector by sector.
+#define SD_FORMAT_ALLOC_UNIT (16 * 1024)
+#define SD_FORMAT_WORK_BUFFER (16 * 1024)
+
+static const char *SD_FORMAT_TAG = "sd_format";
+
+// Formats the card as FAT32 (FM_FAT32 rather than the FM_ANY of
+// esp_vfs_fat_sdmmc_mount) so that an interrupted format is redone on the next
+// boot instead of leaving a card that mounts with garbage in its FAT.
+//
+// f_mkfs writes the volume boot sector FIRST, then clears the FAT and the root
+// directory, and only at the very end writes the partition table (create_partition,
+// when the volume is a new single partition). IDF's partition_card runs f_fdisk
+// before it, so the MBR already points at the new volume while its FAT is being
+// cleared: a reset or power loss in that window - the monitor opening the
+// USB-Serial-JTAG port resets the chip - leaves a FAT32 that mounts and is
+// corrupt, and being FAT it is never formatted again. Here sector 0 is zeroed
+// instead, which makes the partition table written by f_mkfs the commit point:
+// until it lands, the card classifies as blank and is formatted again.
+//
+// Returns SD_FORMAT_DONE, SD_FORMAT_DONE_SMALL or SD_FORMAT_FAILED.
+static int32_t FormatFat(sdmmc_card_t *card)
+{
+    BYTE pdrv = 0xFF;
+    if (ff_diskio_get_drive(&pdrv) != ESP_OK || pdrv == 0xFF)
+    {
+        ESP_LOGE(SD_FORMAT_TAG, "no free FatFs drive");
+        return SD_FORMAT_FAILED;
+    }
+
+    size_t workSize = SD_FORMAT_WORK_BUFFER;
+    void *work = heap_caps_malloc(workSize, MALLOC_CAP_DMA);
+    if (work == NULL)
+    {
+        workSize = FF_MAX_SS;
+        work = heap_caps_malloc(workSize, MALLOC_CAP_DMA);
+    }
+    if (work == NULL)
+    {
+        ESP_LOGE(SD_FORMAT_TAG, "no memory for the work buffer");
+        return SD_FORMAT_FAILED;
+    }
+
+    // the first destructive write: from here until f_mkfs writes the partition
+    // table the card reads as blank
+    memset(work, 0, (size_t)card->csd.sector_size);
+    if (sdmmc_write_sectors(card, work, 0, 1) != ESP_OK)
+    {
+        ESP_LOGE(SD_FORMAT_TAG, "clearing sector 0 failed");
+        heap_caps_free(work);
+        return SD_FORMAT_FAILED;
+    }
+
+    ff_diskio_register_sdmmc(pdrv, card);
+
+    char drv[3] = {(char)('0' + pdrv), ':', 0};
+    bool small = false;
+    MKFS_PARM fat32 = {FM_FAT32, 2, 0, 0, SD_FORMAT_ALLOC_UNIT};
+    FRESULT res = f_mkfs(drv, &fat32, work, workSize);
+
+    // too few clusters for FAT32 on a small card: let FatFs pick FAT12/16 and the
+    // cluster size itself. f_mkfs gives up before its first write, so sector 0 is
+    // still clear for the second attempt.
+    if (res == FR_MKFS_ABORTED)
+    {
+        MKFS_PARM fat = {FM_FAT, 2, 0, 0, 0};
+        res = f_mkfs(drv, &fat, work, workSize);
+        small = true;
+    }
+
+    ff_diskio_unregister(pdrv);
+    heap_caps_free(work);
+
+    ESP_LOGW(SD_FORMAT_TAG, "format -> %d", (int)res);
+    if (res != FR_OK)
+        return SD_FORMAT_FAILED;
+    return small ? SD_FORMAT_DONE_SMALL : SD_FORMAT_DONE;
+}
+
+// Result: the low byte is LT_SD_FS_* (what was found on the card), the second
+// byte is SD_FORMAT_*. Classifying and formatting happen in one session with the
+// card: re-initialising it in between would let a different card state - or a
+// different card - be formatted on a decision made about the previous one.
+signed int Utilities::NativeSdFormatForeign( uint8_t width, uint16_t freqKhz, CLR_RT_TypedArray_UINT8 pins, HRESULT &hr )
+{
+    hr = S_OK;
+
+    if (pins.GetSize() < 6) {
+        hr = CLR_E_INVALID_PARAMETER;
+        return LT_SD_FS_UNREADABLE;
+    }
+
+    sdmmc_card_t *card = NULL;
+    int32_t opened = lt_sys_sd_open(width, freqKhz, (const uint8_t *)pins.GetBuffer(), &card);
+    if (opened == LT_SD_PARAM) {
+        hr = CLR_E_INVALID_PARAMETER;
+        return LT_SD_FS_UNREADABLE;
+    }
+    if (opened != LT_SD_OK) {
+        return LT_SD_FS_UNREADABLE;
+    }
+
+    int32_t kind = lt_sys_sd_classify(card);
+    int32_t outcome = SD_FORMAT_SKIPPED;
+    if (LT_SD_FS_IS_FOREIGN(kind)) {
+        outcome = FormatFat(card);
+    }
+
+    lt_sys_sd_close(card);
+    return kind | (outcome << 8);
 }

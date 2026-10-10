@@ -105,6 +105,7 @@ static const CLR_RT_MethodHandler method_lookup[] =
     NULL,
     NULL,
     NULL,
+    NULL,
     Library_interoplib_interoplib_Utilities::NativeGetBaseMac___STATIC__VOID__SZARRAY_U1,
     Library_interoplib_interoplib_Utilities::NativeCrc32___STATIC__U4__U4__SZARRAY_U1__I4__I4,
     Library_interoplib_interoplib_Utilities::NativeSdProbe___STATIC__I4__U1__U2__SZARRAY_U1,
@@ -114,12 +115,13 @@ static const CLR_RT_MethodHandler method_lookup[] =
     Library_interoplib_interoplib_Utilities::NativeGetCoredumpSize___STATIC__U4,
     Library_interoplib_interoplib_Utilities::NativeReadCoredump___STATIC__I4__U4__SZARRAY_U1__I4,
     Library_interoplib_interoplib_Utilities::NativeEraseCoredump___STATIC__BOOLEAN,
+    Library_interoplib_interoplib_Utilities::NativeSdFormatForeign___STATIC__I4__U1__U2__SZARRAY_U1,
 };
 
 const CLR_RT_NativeAssemblyData g_CLR_AssemblyNative_interoplib =
 {
     "interoplib",
-    0x79B82A34,
+    0x04118946,
     method_lookup,
     { 2, 0, 0, 0 }
 };

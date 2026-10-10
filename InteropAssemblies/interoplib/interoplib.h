@@ -99,6 +99,7 @@ struct Library_interoplib_interoplib_Utilities
     NANOCLR_NATIVE_DECLARE(NativeGetCoredumpSize___STATIC__U4);
     NANOCLR_NATIVE_DECLARE(NativeReadCoredump___STATIC__I4__U4__SZARRAY_U1__I4);
     NANOCLR_NATIVE_DECLARE(NativeEraseCoredump___STATIC__BOOLEAN);
+    NANOCLR_NATIVE_DECLARE(NativeSdFormatForeign___STATIC__I4__U1__U2__SZARRAY_U1);
 
     //--//
 };

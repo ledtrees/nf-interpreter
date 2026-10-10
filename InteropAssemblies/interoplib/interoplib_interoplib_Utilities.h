@@ -40,6 +40,8 @@ namespace interoplib
 
             static bool NativeEraseCoredump(  HRESULT &hr );
 
+            static signed int NativeSdFormatForeign( uint8_t param0, uint16_t param1, CLR_RT_TypedArray_UINT8 param2, HRESULT &hr );
+
         };
     }
 }
