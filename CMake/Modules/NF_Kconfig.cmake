@@ -162,7 +162,13 @@ function(nf_load_kconfig)
     # (preset or build-type switch — timestamps alone would miss it and leave
     # a stale .config).
     set(_defconfig_stamp "${CMAKE_BINARY_DIR}/.nf_defconfig_used")
-    set(_stamp_content "${_defconfig_path}|${CMAKE_BUILD_TYPE}")
+    # the user overlay is part of the stamp: dropping or swapping it changes no
+    # timestamp the checks below look at, and its values would silently survive
+    set(_user_overlay_present NO)
+    if(EXISTS "${_user_overlay}")
+        set(_user_overlay_present YES)
+    endif()
+    set(_stamp_content "${_defconfig_path}|${CMAKE_BUILD_TYPE}|${_user_overlay}|${_user_overlay_present}")
     set(_last_stamp "")
     if(EXISTS "${_defconfig_stamp}")
         file(READ "${_defconfig_stamp}" _last_stamp)
