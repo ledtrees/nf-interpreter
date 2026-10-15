@@ -108,11 +108,19 @@ function(nf_load_kconfig)
     # Developers copy config/user-kconfig.conf.TEMPLATE to config/user-kconfig.conf
     # and customise it; that file is git-ignored and merged on top of the board
     # defconfig so per-developer preferences never touch shared files.
-    # The path can be overridden via the NF_USER_KCONFIG_OVERLAY CMake variable.
+    # The path can be overridden via the NF_USER_KCONFIG_OVERLAY CMake variable;
+    # a relative path is taken from the source tree, like NF_TARGET_DEFCONFIG.
     if(NOT DEFINED NF_USER_KCONFIG_OVERLAY)
         set(_user_overlay "${CMAKE_SOURCE_DIR}/config/user-kconfig.conf")
     else()
         set(_user_overlay "${NF_USER_KCONFIG_OVERLAY}")
+    endif()
+    # Made absolute once, for both the regeneration checks and nf_merge_config.py:
+    # the script runs in CMAKE_SOURCE_DIR, while EXISTS/IS_NEWER_THAN would resolve
+    # a relative path against the current directory and never see the overlay.
+    # An empty value means no overlay and stays empty.
+    if(NOT "${_user_overlay}" STREQUAL "")
+        get_filename_component(_user_overlay "${_user_overlay}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
     endif()
 
     # NF_BUILD_RTM is derived from the build type rather than from the defconfig:
