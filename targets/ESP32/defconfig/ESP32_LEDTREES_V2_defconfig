@@ -22,6 +22,10 @@ CONFIG_API_NANOFRAMEWORK_SYSTEM_IO_HASHING=y
 CONFIG_API_NANOFRAMEWORK_SYSTEM_SECURITY_CRYPTOGRAPHY=y
 CONFIG_API_NANOFRAMEWORK_SYSTEM_TEXT=y
 CONFIG_ESP32_RESERVE_SPIRAM_IDF_ALLOCATION_BYTES=1048576
+# LEDTREES: soft AP of the assembly is WPA2-CCMP instead of the WPA/WPA2 mixed
+# mode (no WPA1/TKIP, PMF with capable clients). ESP32_AP_SECURITY_WPA2_WPA3 is
+# the next step, pending bench measurements of a full group reconnecting.
+CONFIG_ESP32_AP_SECURITY_WPA2=y
 CONFIG_NF_WP_TRANSPORT_USB_CDC_OR_SERIAL=y
 # NF_BUILD_RTM is not set here: it is derived from CMAKE_BUILD_TYPE
 # (Release/MinSizeRel -> RTM, Debug -> CLR debugger), see NF_Kconfig.cmake

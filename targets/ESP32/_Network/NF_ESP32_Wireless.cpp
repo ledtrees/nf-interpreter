@@ -669,6 +669,26 @@ esp_err_t NF_ESP32_WirelessAP_Configure(HAL_Configuration_NetworkInterface *conf
         ap_config.ap.authmode = WIFI_AUTH_OPEN;
     }
 
+#if CONFIG_ESP32_AP_SECURITY_WPA2 || CONFIG_ESP32_AP_SECURITY_WPA2_WPA3
+    // managed WPA2 maps to the WPA/WPA2 mixed mode, which keeps WPA1/TKIP alive;
+    // upgrade it as selected by ESP32_AP_SECURITY (see targets/ESP32/Kconfig)
+    if (ap_config.ap.authmode == WIFI_AUTH_WPA_WPA2_PSK)
+    {
+#if CONFIG_ESP32_AP_SECURITY_WPA2_WPA3
+        ap_config.ap.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+        ap_config.ap.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+        // no transition disable: a rollback to a WPA2-only image would lock out
+        // phones that had remembered it
+        ap_config.ap.transition_disable = 0;
+#else
+        ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+#endif
+        ap_config.ap.pairwise_cipher = WIFI_CIPHER_TYPE_CCMP;
+        // PMF optional: clients without it still associate, the rest use it
+        ap_config.ap.pmf_cfg.required = false;
+    }
+#endif
+
     // Max connections for ESP32
     ap_config.ap.max_connection = apConfig->MaxConnections;
 

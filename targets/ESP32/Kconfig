@@ -46,6 +46,38 @@ config ESP32_ETHERNET_PHY_POWER_PIN
     string "Ethernet PHY power pin override"
     default ""
 
+choice ESP32_AP_SECURITY
+    prompt "Soft AP security for WPA2 networks"
+    default ESP32_AP_SECURITY_LEGACY
+    help
+      What the soft AP advertises when the managed configuration asks for
+      AuthenticationType.WPA2 (the managed API has no WPA3 value). Station
+      mode is not affected.
+
+config ESP32_AP_SECURITY_LEGACY
+    bool "WPA/WPA2 mixed (TKIP+CCMP)"
+    help
+      WIFI_AUTH_WPA_WPA2_PSK with the IDF default ciphers: legacy WPA1/TKIP
+      clients are accepted and the group cipher falls back to TKIP.
+
+config ESP32_AP_SECURITY_WPA2
+    bool "WPA2 only (CCMP)"
+    help
+      WIFI_AUTH_WPA2_PSK with CCMP. Drops WPA1/TKIP; PMF is used with every
+      client that supports it.
+
+config ESP32_AP_SECURITY_WPA2_WPA3
+    bool "WPA2/WPA3 transition (CCMP, SAE, PMF optional)"
+    help
+      WIFI_AUTH_WPA2_WPA3_PSK with CCMP and both SAE PWE methods. WPA3
+      clients get SAE (forward secrecy, no offline dictionary attack) and
+      mandatory PMF; WPA2 clients keep connecting. Transition disable is
+      not signalled: it would lock phones out after a rollback to firmware
+      that advertises WPA2 only. SAE costs noticeably more CPU per
+      association than PSK.
+
+endchoice
+
 source "targets/ESP32/Kconfig.ethernet"
 
 endmenu
