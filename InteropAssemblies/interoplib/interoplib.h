@@ -33,6 +33,16 @@ struct Library_interoplib_interoplib_Crypto
     //--//
 };
 
+struct Library_interoplib_interoplib_DmxReceiver
+{
+    NANOCLR_NATIVE_DECLARE(NativeStart___STATIC__I4__I4__I4__I4__I4);
+    NANOCLR_NATIVE_DECLARE(NativeStop___STATIC__VOID);
+    NANOCLR_NATIVE_DECLARE(NativeRead___STATIC__I4__U2__SZARRAY_U1);
+    NANOCLR_NATIVE_DECLARE(NativeGetStats___STATIC__VOID__SZARRAY_U4);
+
+    //--//
+};
+
 struct Library_interoplib_interoplib_FrameDecoder
 {
     NANOCLR_NATIVE_DECLARE(NativeDecodeFrame___STATIC__I4__SZARRAY_U1__I4__I4__SZARRAY_U1__SZARRAY_U1__U2);

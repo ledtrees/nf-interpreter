@@ -793,7 +793,8 @@ macro(nf_add_idf_as_library)
             ledtrees_framecodec
             ledtrees_crypto
             ledtrees_sysinfo
-            ledtrees_ledpixel)
+            ledtrees_ledpixel
+            ledtrees_dmx)
 
         foreach(ledtreesComponent ${LEDTREES_COMPONENTS})
 
