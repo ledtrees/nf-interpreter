@@ -11,25 +11,121 @@
 // Diagnostic output macro — disabled (was used for debugging config updates)
 #define CFGDBG(...) ((void)0)
 
-uint32_t GetExistingConfigSize()
+// gets the alignment required for the start address of a config block
+static uint32_t GetConfigBlockAlignment()
 {
-    uint32_t currentConfigSize = 0;
-
-    currentConfigSize =
-        g_TargetConfiguration.NetworkInterfaceConfigs->Count * sizeof(HAL_Configuration_NetworkInterface);
-    currentConfigSize += g_TargetConfiguration.Wireless80211Configs->Count * sizeof(HAL_Configuration_Wireless80211);
-
 #if defined(RP2040) || defined(RP2350)
-    // round up to 256 bytes - RP2040/RP2350 flash program granularity
-    currentConfigSize = (currentConfigSize + 255U) & ~255U;
+    // 256 bytes - RP2040/RP2350 flash program granularity
+    return 256U;
 #elif defined(STM32L475xx)
-    // round up to 8 bytes - STM32L4 flash can only be programmed in double-word units
-    currentConfigSize = (currentConfigSize + 7U) & ~7U;
+    // 8 bytes - STM32L4 flash can only be programmed in double-word units
+    return 8U;
+#elif defined(STM32H7XX)
+    // 32 bytes - STM32H7 flash can only be programmed in flash word (256 bits) units
+    return 32U;
 #else
     // default to byte alignment
+    return 1U;
 #endif
+}
 
-    return currentConfigSize;
+static uint32_t GetStoredConfigBlockSize(const uint8_t *block, uint32_t remainingSize)
+{
+    if (memcmp(block, c_MARKER_CONFIGURATION_NETWORK_V1, 4) == 0)
+    {
+        uint32_t blockSize = sizeof(HAL_Configuration_NetworkInterface);
+        return blockSize > remainingSize ? remainingSize : blockSize;
+    }
+
+    if (memcmp(block, c_MARKER_CONFIGURATION_WIRELESS80211_V1, 4) == 0)
+    {
+        uint32_t blockSize = sizeof(HAL_Configuration_Wireless80211);
+        return blockSize > remainingSize ? remainingSize : blockSize;
+    }
+
+    if (memcmp(block, c_MARKER_CONFIGURATION_WIRELESS_AP_V1, 4) == 0)
+    {
+        uint32_t blockSize = sizeof(HAL_Configuration_WirelessAP);
+        return blockSize > remainingSize ? remainingSize : blockSize;
+    }
+
+    if (memcmp(block, c_MARKER_CONFIGURATION_X509CAROOTBUNDLE_V1, 4) == 0)
+    {
+        uint32_t headerSize = offsetof(HAL_Configuration_X509CaRootBundle, Certificate);
+        if (remainingSize < headerSize)
+        {
+            return remainingSize;
+        }
+
+        uint32_t certificateSize = ((const HAL_Configuration_X509CaRootBundle *)block)->CertificateSize;
+        return certificateSize > remainingSize - headerSize ? remainingSize : headerSize + certificateSize;
+    }
+
+    if (memcmp(block, c_MARKER_CONFIGURATION_X509DEVICECERTIFICATE_V1, 4) == 0)
+    {
+        uint32_t headerSize = offsetof(HAL_Configuration_X509DeviceCertificate, Certificate);
+        if (remainingSize < headerSize)
+        {
+            return remainingSize;
+        }
+
+        uint32_t certificateSize = ((const HAL_Configuration_X509DeviceCertificate *)block)->CertificateSize;
+        return certificateSize > remainingSize - headerSize ? remainingSize : headerSize + certificateSize;
+    }
+
+    return 0;
+}
+
+uint32_t GetExistingConfigSize()
+{
+    uint32_t alignment = GetConfigBlockAlignment();
+    uint32_t configStart = (uint32_t)&__nanoConfig_start__;
+    uint32_t configEnd = (uint32_t)&__nanoConfig_end__;
+    uint32_t configSize = configEnd - configStart;
+    uint32_t dataEnd = configStart;
+
+    // Scan stored blocks directly so blocks omitted from target enumeration are preserved.
+    for (uint32_t offset = 0; configSize >= 4 && offset <= configSize - 4;)
+    {
+        uint32_t address = configStart + offset;
+        uint32_t blockSize = GetStoredConfigBlockSize((const uint8_t *)address, configSize - offset);
+
+        if (blockSize == 0)
+        {
+            offset++;
+            continue;
+        }
+
+        dataEnd = address + blockSize;
+        offset += blockSize;
+    }
+
+    // round up to the target alignment
+    return ((dataEnd - configStart + alignment - 1) / alignment) * alignment;
+}
+
+// gets the size of the configuration block to be stored, 0 for configuration options that can't be updated
+static uint32_t GetConfigurationBlockSize(void *configurationBlock, DeviceConfigurationOption configuration)
+{
+    switch (configuration)
+    {
+        case DeviceConfigurationOption_Network:
+            return sizeof(HAL_Configuration_NetworkInterface);
+
+        case DeviceConfigurationOption_Wireless80211Network:
+            return sizeof(HAL_Configuration_Wireless80211);
+
+        case DeviceConfigurationOption_X509CaRootBundle:
+            return offsetof(HAL_Configuration_X509CaRootBundle, Certificate) +
+                   ((HAL_Configuration_X509CaRootBundle *)configurationBlock)->CertificateSize;
+
+        case DeviceConfigurationOption_X509DeviceCertificates:
+            return offsetof(HAL_Configuration_X509DeviceCertificate, Certificate) +
+                   ((HAL_Configuration_X509DeviceCertificate *)configurationBlock)->CertificateSize;
+
+        default:
+            return 0;
+    }
 }
 
 // initialization of configuration manager
@@ -242,7 +338,7 @@ __nfweak bool ConfigurationManager_GetConfigurationBlock(
         sizeOfBlock = offsetof(HAL_Configuration_X509CaRootBundle, Certificate);
         sizeOfBlock += ((HAL_Configuration_X509CaRootBundle *)blockAddress)->CertificateSize;
     }
-    else if (configuration == DeviceConfigurationOption_X509CaRootBundle)
+    else if (configuration == DeviceConfigurationOption_X509DeviceCertificates)
     {
         if (g_TargetConfiguration.DeviceCertificates->Count == 0 ||
             (configurationIndex + 1) > g_TargetConfiguration.DeviceCertificates->Count)
@@ -258,6 +354,12 @@ __nfweak bool ConfigurationManager_GetConfigurationBlock(
         sizeOfBlock = offsetof(HAL_Configuration_X509DeviceCertificate, Certificate);
         sizeOfBlock += ((HAL_Configuration_X509DeviceCertificate *)blockAddress)->CertificateSize;
     }
+    else
+    {
+        // unknown or unsupported configuration option
+        return FALSE;
+    }
+
     // copy the config block content to the pointer in the argument
     memcpy(configurationBlock, blockAddress, sizeOfBlock);
 
@@ -328,25 +430,16 @@ __nfweak bool ConfigurationManager_StoreConfigurationBlock(
             (g_TargetConfiguration.Wireless80211Configs->Count == 0 && configurationIndex == 0))
         {
             // no wireless config block exists yet, storing the first one
-            // scan flash to find the end of existing config data (network configs come first)
-            HAL_CONFIGURATION_NETWORK *existingNet =
-                (HAL_CONFIGURATION_NETWORK *)ConfigurationManager_FindNetworkConfigurationBlocks(
-                    (uint32_t)&__nanoConfig_start__,
-                    (uint32_t)&__nanoConfig_end__);
-            uint32_t existingSize = existingNet->Count * sizeof(HAL_Configuration_NetworkInterface);
-            platform_free(existingNet);
+            storageAddress = (uint32_t)&__nanoConfig_start__ + GetExistingConfigSize();
 
-#if defined(RP2040) || defined(RP2350)
-            // round up to 256 bytes - RP2040/RP2350 flash program granularity
-            existingSize = (existingSize + 255U) & ~255U;
-#elif defined(STM32L475xx)
-            // round up to 8 bytes - STM32L4 flash can only be programmed in double-word units
-            existingSize = (existingSize + 7U) & ~7U;
-#else
-            // default to byte alignment
-#endif
+            // check if there is room for it
+            if (storageAddress >= (uint32_t)&__nanoConfig_end__ ||
+                ((uint32_t)&__nanoConfig_end__ - storageAddress) < sizeof(HAL_Configuration_Wireless80211))
+            {
+                // not enough room
+                return FALSE;
+            }
 
-            storageAddress = (uint32_t)&__nanoConfig_start__ + existingSize;
             isInitialAllocation = TRUE;
         }
         else if (
@@ -475,14 +568,16 @@ __nfweak bool ConfigurationManager_StoreConfigurationBlock(
     {
         // particular situation where we are receiving the full configuration block
 
-        // set storage address as the start of the flash configuration sector, plus the requested offset
-        storageAddress = (ByteAddress)&__nanoConfig_start__ + offset;
+        uint32_t configSize = (uint32_t)&__nanoConfig_end__ - (uint32_t)&__nanoConfig_start__;
 
-        // for save all the block size has to be provided, check that
-        if (blockSize == 0)
+        // for SAVE ALL the block size has to be provided
+        // sanity checks on offset and size (coming from host)
+        if (blockSize == 0 || offset > configSize || blockSize > configSize - offset)
         {
             return FALSE;
         }
+
+        storageAddress = (ByteAddress)&__nanoConfig_start__ + offset;
     }
 
     if (isInitialAllocation &&
@@ -530,6 +625,9 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
     uint32_t blockOffset;
     uint8_t *blockAddressInCopy;
     uint32_t blockSize;
+    uint32_t oldBlockSize;
+    uint32_t oldTailOffset;
+    uint32_t newTailOffset;
     UpdateConfigurationResult success = UpdateConfigurationResult_Failed;
     BlockStorageDevice *device = BlockStorageList_GetFirstDevice();
 
@@ -547,13 +645,25 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
         (unsigned)(uintptr_t)g_TargetConfiguration.Wireless80211Configs,
         g_TargetConfiguration.Wireless80211Configs ? g_TargetConfiguration.Wireless80211Configs->Count : -1);
 
+    // the copy only has to hold the config data in use plus room for the block being stored, as it can grow
+    // there is no need to copy the whole config sector, which can be larger than the available heap
+    uint32_t alignment = GetConfigBlockAlignment();
+    uint32_t copySize =
+        GetExistingConfigSize() +
+        ((GetConfigurationBlockSize(configurationBlock, configuration) + alignment - 1) / alignment) * alignment;
+
+    if (copySize > (uint32_t)sizeOfConfigSector)
+    {
+        copySize = (uint32_t)sizeOfConfigSector;
+    }
+
     // allocate memory from CRT heap
-    uint8_t *configSectorCopy = (uint8_t *)platform_malloc(sizeOfConfigSector);
+    uint8_t *configSectorCopy = (uint8_t *)platform_malloc(copySize);
 
     if (configSectorCopy != NULL)
     {
-        // copy config sector from flash to RAM
-        memcpy(configSectorCopy, &__nanoConfig_start__, sizeOfConfigSector);
+        // copy config data in use from flash to RAM
+        memcpy(configSectorCopy, &__nanoConfig_start__, copySize);
 
         // find out the address for the config block to update in the configSectorCopy
         // because we are copying back the config block to flash and just replacing the config block content
@@ -584,6 +694,7 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
 
             // set block size, in case it's not already set
             blockSize = sizeof(HAL_Configuration_NetworkInterface);
+            oldBlockSize = blockSize;
 
             _ASSERTE(((HAL_Configuration_NetworkInterface *)configurationBlock)->StartupAddressMode > 0);
         }
@@ -651,6 +762,7 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
 
             // set block size, in case it's not already set
             blockSize = sizeof(HAL_Configuration_Wireless80211);
+            oldBlockSize = blockSize;
         }
         else if (configuration == DeviceConfigurationOption_X509CaRootBundle)
         {
@@ -682,6 +794,10 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
             // because X509 certificate has a variable length need to compute the block size in two steps
             blockSize = offsetof(HAL_Configuration_X509CaRootBundle, Certificate);
             blockSize += ((HAL_Configuration_X509CaRootBundle *)configurationBlock)->CertificateSize;
+
+            // size of the block currently stored
+            oldBlockSize = offsetof(HAL_Configuration_X509CaRootBundle, Certificate);
+            oldBlockSize += g_TargetConfiguration.CertificateStore->Certificates[configurationIndex]->CertificateSize;
         }
         else if (configuration == DeviceConfigurationOption_X509DeviceCertificates)
         {
@@ -713,6 +829,10 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
             // because X509 certificate has a variable length need to compute the block size in two steps
             blockSize = offsetof(HAL_Configuration_X509DeviceCertificate, Certificate);
             blockSize += ((HAL_Configuration_X509DeviceCertificate *)configurationBlock)->CertificateSize;
+
+            // size of the block currently stored
+            oldBlockSize = offsetof(HAL_Configuration_X509DeviceCertificate, Certificate);
+            oldBlockSize += g_TargetConfiguration.DeviceCertificates->Certificates[configurationIndex]->CertificateSize;
         }
         else
         {
@@ -722,6 +842,77 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
 
             return UpdateConfigurationResult_Failed;
         }
+
+        // subtract the start address of config sector to get the offset
+        blockOffset = storageAddress - (uint32_t)&__nanoConfig_start__;
+
+        // sanity check of the block offset and of the new and current block sizes against the config data copy
+        if (blockOffset > copySize || blockSize > copySize - blockOffset || oldBlockSize > copySize - blockOffset)
+        {
+            platform_free(configSectorCopy);
+
+            return UpdateConfigurationResult_Failed;
+        }
+
+        // the data following the block starts at the end of the block currently stored
+        oldTailOffset = blockOffset + oldBlockSize;
+        newTailOffset = oldTailOffset;
+
+        if (blockSize != oldBlockSize)
+        {
+            // certificate blocks have variable length, so the data following the block has to be moved
+            // to close or open the gap, the shift is a multiple of the target alignment so the blocks that follow
+            // keep their alignment
+            uint32_t usedSize = GetExistingConfigSize();
+            uint32_t shift;
+
+            if (usedSize < oldTailOffset)
+            {
+                usedSize = oldTailOffset;
+            }
+
+            if (usedSize > copySize)
+            {
+                usedSize = copySize;
+            }
+
+            if (blockSize > oldBlockSize)
+            {
+                shift = ((blockSize - oldBlockSize + alignment - 1) / alignment) * alignment;
+
+                // check if the used data plus the size increase still fits in the config data copy
+                // (which is capped to the config sector size)
+                if (shift > copySize - usedSize)
+                {
+                    CFGDBG("CFGUPD: no room for block size change\r\n");
+                    platform_free(configSectorCopy);
+
+                    return UpdateConfigurationResult_Failed;
+                }
+
+                newTailOffset = oldTailOffset + shift;
+                memmove(configSectorCopy + newTailOffset, configSectorCopy + oldTailOffset, usedSize - oldTailOffset);
+            }
+            else
+            {
+                shift = ((oldBlockSize - blockSize) / alignment) * alignment;
+
+                newTailOffset = oldTailOffset - shift;
+                memmove(configSectorCopy + newTailOffset, configSectorCopy + oldTailOffset, usedSize - oldTailOffset);
+
+                // fill the space freed at the end with the erased flash value
+                memset(configSectorCopy + usedSize - shift, 0xFF, shift);
+            }
+        }
+
+        // set pointer to block to udpate
+        blockAddressInCopy = configSectorCopy + blockOffset;
+
+        // replace config block with new content by replacing memory
+        memcpy(blockAddressInCopy, configurationBlock, blockSize);
+
+        // fill any space between the end of the block and the data that follows it with the erased flash value
+        memset(blockAddressInCopy + blockSize, 0xFF, newTailOffset - (blockOffset + blockSize));
 
         // erase config sector
         CFGDBG("CFGUPD: erasing 0x%08X\r\n", (unsigned)(uint32_t)&__nanoConfig_start__);
@@ -740,26 +931,18 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
             if (eraseOk)
             {
                 // flash block is erased
-
-                // subtract the start address of config sector to get the offset
-                blockOffset = storageAddress - (uint32_t)&__nanoConfig_start__;
                 CFGDBG(
                     "CFGUPD: writing offset=%d blkSz=%d secSz=%d\r\n",
                     (int)blockOffset,
                     (int)blockSize,
                     sizeOfConfigSector);
 
-                // set pointer to block to udpate
-                blockAddressInCopy = configSectorCopy + blockOffset;
-
-                // replace config block with new content by replacing memory
-                memcpy(blockAddressInCopy, configurationBlock, blockSize);
-
-                // copy the config block copy back to the config block storage
+                // copy the config data back to the config block storage
+                // the rest of the config sector has just been erased
                 if (BlockStorageDevice_Write(
                         device,
                         (uint32_t)&__nanoConfig_start__,
-                        sizeOfConfigSector,
+                        copySize,
                         (unsigned char *)configSectorCopy,
                         true))
                 {
@@ -779,10 +962,23 @@ __nfweak UpdateConfigurationResult ConfigurationManager_UpdateConfigurationBlock
 
         // free memory
         platform_free(configSectorCopy);
+
+        if (success == UpdateConfigurationResult_Success)
+        {
+            // blocks may have moved, so the configuration blocks have to be enumerated again
+            // free the current allocation(s)
+            platform_free(g_TargetConfiguration.NetworkInterfaceConfigs);
+            platform_free(g_TargetConfiguration.Wireless80211Configs);
+            platform_free(g_TargetConfiguration.CertificateStore);
+            platform_free(g_TargetConfiguration.DeviceCertificates);
+
+            // perform enumeration of configuration blocks
+            ConfigurationManager_EnumerateConfigurationBlocks();
+        }
     }
     else
     {
-        CFGDBG("CFGUPD: malloc(%d) FAILED\r\n", sizeOfConfigSector);
+        CFGDBG("CFGUPD: malloc(%d) FAILED\r\n", (int)copySize);
     }
 
     CFGDBG("CFGUPD: result=%d\r\n", (int)success);

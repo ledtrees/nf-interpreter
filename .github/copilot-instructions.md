@@ -56,7 +56,7 @@ Kconfig*              # Kconfig configuration system (feature flags, APIs, RTOS,
 
 - **CMake 3.31+** and **Ninja** build system.
 - Cross-compilation toolchains (ARM GCC, Xtensa GCC, RISC-V GCC) depending on target.
-- Platform SDKs (ESP-IDF v5.5.5, ChibiOS, ThreadX, etc.).
+- Platform SDKs (ESP-IDF v5.5.6, ChibiOS, ThreadX, etc.).
 - Python 3 with `kconfiglib>=14.1.0` (from `requirements.txt`).
 - **Dev containers** are the recommended way to build. Pre-built images:
   - `ghcr.io/nanoframework/dev-container-all` (all platforms)
@@ -89,7 +89,7 @@ Each target preset is defined in `targets/<RTOS>/CMakePresets.json` and referenc
 - **Local builds are supported** when the developer machine has the required toolchains (ARM GCC, Xtensa GCC, RISC-V GCC) and RTOS SDKs installed. The dev containers are the easiest path, but not the only one.
 - **Before initiating a build**, check with the user whether they want to build locally (assuming tools are installed) or use a dev container. Do not assume one approach — ask first.
 - The cloud agent environment itself does not have embedded cross-compilers pre-installed, so CI builds run in Azure Pipelines and GitHub Actions dev container workflows.
-- **Switching targets**: When switching to a different target, the build folder must be cleaned (deleted or emptied) before reconfiguring. Exception: the `_deps` subdirectory inside the build folder may be preserved — it caches downloaded SDKs and repositories and can safely be reused across builds to avoid redundant downloads.
+- **Switching targets**: When switching to a different target, the build folder must be cleaned (deleted or emptied) before reconfiguring. Exception: the `_deps` subdirectory inside the build folder may be preserved — it caches downloaded SDKs and repositories. Note that CMake keeps the clone records under `CMakeFiles`, so after cleaning everything else the dependencies are cloned again unless `FETCHCONTENT_FULLY_DISCONNECTED=ON` is set or local source paths are configured (see "Reusing downloaded build dependencies" in `CMake/README.md`).
 - **ESP32 `sdkconfig` at repo root**: The ESP-IDF build system generates and reads a `sdkconfig` file at the repository root. When building an ESP32 target for the first time, or switching to a different ESP32 target, delete this file if it already exists so the new target's defconfig is applied cleanly. This is not required for non-ESP32 platforms.
 
 ### No In-Repo Unit Tests
@@ -179,6 +179,7 @@ Each target board has:
 
 - **Primary CI**: Azure Pipelines (`azure-pipelines.yml`) — builds firmware for all reference targets on `main`, `develop*`, and `release-*` branches.
 - **GitHub Actions**: Dev container smoke tests (`.github/workflows/devcontainer-smoketest.yaml`) — builds selected targets in Docker containers, triggered on PRs that modify `.devcontainer/` or `.github/workflows/`.
+- **Changelog and GitHub releases**: `.github/workflows/generate-changelog.yml` builds the changelog from merged PRs (grouped by labels, see `.github/.changelog-config.json`) and creates/updates the GitHub release. Runs when a version tag (`vX.Y.Z[.W]`) on `main` is pushed, or manually (`workflow_dispatch` from `main`) for a given tag, with optional `from_tag` and `dry_run`. PR labels (`Type:`, `Area:`, `Platform:`, `Series:`, `Breaking-change`) drive the grouping, so label PRs accordingly.
 - **Nightly builds**: `azure-pipelines-nightly.yml`.
 - Issues are tracked in the central `nanoframework/Home` repository. Link format: `nanoFramework/Home#NNNN`.
 
@@ -205,4 +206,4 @@ Follow the PR template at `.github/PULL_REQUEST_TEMPLATE.md`:
 4. **Kconfig Python dependency**: The Kconfig system requires `kconfiglib` (`pip install kconfiglib`). This is needed for `cmake --preset` to work.
 5. **Submodules**: The repo has a submodule for community targets (`targets-community`). Clone with `--recurse-submodules` or run `git submodule update --init`.
 6. **File encoding**: Most files use UTF-8 with BOM and CRLF line endings (see `.editorconfig`). Kconfig files must NOT have BOM.
-7. **ESP32 targets**: ESP-IDF v5.5.5 is the pinned SDK version. The ESP32 build integrates with the IDF build system (idf.py/CMake).
+7. **ESP32 targets**: ESP-IDF v5.5.6 is the pinned SDK version. The ESP32 build integrates with the IDF build system (idf.py/CMake).
