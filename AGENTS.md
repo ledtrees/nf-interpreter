@@ -18,7 +18,7 @@
 ## Нативная прошивка
 
 - Прочитать [SETUP.md](SETUP.md), [общие инструкции nanoFramework](.ai/upstream-instructions.md) и [рабочий процесс LEDTREES](.ai/memory/project-ledtrees-workflow.md). Этот файл задаёт правила форка; upstream-справка описывает остальные платформы.
-- Использовать ESP-IDF v5.5.5, preset `ESP32_LEDTREES_V2` из CMakePresets.json и настроенное локальное окружение. Не менять SDK и плату без соответствующей задачи.
+- Использовать ESP-IDF v5.5.6, preset `ESP32_LEDTREES_V2` из CMakePresets.json и настроенное локальное окружение. Не менять SDK и плату без соответствующей задачи.
 - Конфигурация: `cmake --preset ESP32_LEDTREES_V2`; сборка настроенного дерева: `cmake --build build`. Нужно окружение ESP-IDF из SETUP.md. Собирать вне исходного дерева.
 - Перед сменой preset или очисткой учитывать существующие build, sdkconfig и пользовательские настройки. Для текущего target не удалять их без необходимости.
 - Interop менять согласованно с ledtrees-esp32/nanoframework/src/interoplib: checksum и mangled-имена должны совпадать. Генерируемые стабы не править вручную; процедура переноса и сохранения ручного кода — в памяти рабочего процесса.
