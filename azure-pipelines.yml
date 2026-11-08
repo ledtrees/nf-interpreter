@@ -7,7 +7,6 @@ trigger:
       - main
       - develop*
       - release-*
-      - refs/tags/*
   paths:
     exclude:
       - .clang-format
@@ -46,7 +45,7 @@ resources:
       type: github
       name: espressif/esp-idf
       endpoint: nanoframework
-      ref: refs/tags/v5.5.5
+      ref: refs/tags/v5.5.6
     - repository: mscorlib
       type: github
       name: nanoframework/CoreLibrary
@@ -428,6 +427,14 @@ jobs:
           NeedsSRECORD: true
           CMakePreset: ST_STM32F769I_DISCOVERY
 
+        ST_STM32H735_DISCOVERY:
+          TargetBoard: ST_STM32H735_DISCOVERY
+          TargetSeries: "stm32h7xx"
+          BuildOptions:
+          NeedsDFU: false
+          NeedsSRECORD: true
+          CMakePreset: ST_STM32H735_DISCOVERY
+
         ST_B_L475E_IOT01A:
           TargetBoard: ST_B_L475E_IOT01A
           TargetSeries: 'stm32l4xx'
@@ -658,7 +665,7 @@ jobs:
       IDF_PATH: "$(Agent.BuildDirectory)/s/esp-idf"
       PIP_CACHE_DIR: $(Pipeline.Workspace)/.pip
       TargetPlatform: "esp32"
-      IDF_TAG: "v5.5.5"
+      IDF_TAG: "v5.5.6"
 
     steps:
       - checkout: self
