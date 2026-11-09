@@ -30,6 +30,8 @@ namespace interoplib
 
             static void NativeGetStats( CLR_RT_TypedArray_UINT32 param0, HRESULT &hr );
 
+            static void NativeSetInverted( bool param0, HRESULT &hr );
+
         };
     }
 }

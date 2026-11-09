@@ -80,3 +80,18 @@ HRESULT Library_interoplib_interoplib_DmxReceiver::NativeGetStats___STATIC__VOID
     }
     NANOCLR_NOCLEANUP();
 }
+
+HRESULT Library_interoplib_interoplib_DmxReceiver::NativeSetInverted___STATIC__VOID__BOOLEAN( CLR_RT_StackFrame& stack )
+{
+    NANOCLR_HEADER(); hr = S_OK;
+    {
+
+        bool param0;
+        NANOCLR_CHECK_HRESULT( Interop_Marshal_bool( stack, 0, param0 ) );
+
+        DmxReceiver::NativeSetInverted( param0, hr );
+        NANOCLR_CHECK_HRESULT( hr );
+
+    }
+    NANOCLR_NOCLEANUP();
+}

@@ -52,6 +52,13 @@ signed int DmxReceiver::NativeRead(uint16_t param0, CLR_RT_TypedArray_UINT8 para
     return lt_dmx_read(param0, param1.GetBuffer(), param1.GetSize());
 }
 
+void DmxReceiver::NativeSetInverted(bool param0, HRESULT &hr)
+{
+    (void)hr;
+
+    lt_dmx_set_inverted(param0);
+}
+
 void DmxReceiver::NativeGetStats(CLR_RT_TypedArray_UINT32 param0, HRESULT &hr)
 {
     // managed passes DmxReceiver.StatCount items at least: anything shorter

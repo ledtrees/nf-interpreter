@@ -39,6 +39,7 @@ struct Library_interoplib_interoplib_DmxReceiver
     NANOCLR_NATIVE_DECLARE(NativeStop___STATIC__VOID);
     NANOCLR_NATIVE_DECLARE(NativeRead___STATIC__I4__U2__SZARRAY_U1);
     NANOCLR_NATIVE_DECLARE(NativeGetStats___STATIC__VOID__SZARRAY_U4);
+    NANOCLR_NATIVE_DECLARE(NativeSetInverted___STATIC__VOID__BOOLEAN);
 
     //--//
 };
