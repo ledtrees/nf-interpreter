@@ -17,7 +17,7 @@
 
 static int AppendType(char *buf, size_t size, int pos, const CLR_RT_TypeDef_Instance &type)
 {
-    if (pos >= (int)size)
+    if (pos >= (int)size || type.m_assm == NULL || type.m_target == NULL)
     {
         return pos;
     }
@@ -64,6 +64,13 @@ extern "C" void NF_HangWatchdog_DescribeClr(char *buf, size_t size)
 
         CLR_RT_MethodDef_Instance &md = frame->m_call;
         CLR_RT_TypeDef_Instance owner;
+
+        // a frame being set up on the other core may not have its method yet
+        if (md.m_assm == NULL || md.m_target == NULL)
+        {
+            pos += snprintf(buf + pos, size - pos, " < ?");
+            continue;
+        }
 
         pos += snprintf(buf + pos, size - pos, " < ");
         if (owner.InitializeFromMethod(md))
