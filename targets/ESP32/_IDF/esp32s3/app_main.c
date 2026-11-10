@@ -15,6 +15,7 @@
 #endif
 
 extern void CLRStartupThread(void const *argument);
+extern void NF_HangWatchdog_Start(void);
 TaskHandle_t ReceiverTask;
 
 void receiver_task(void *pvParameter)
@@ -101,4 +102,7 @@ void app_main()
     // target). Pinning itself is required (upstream PR #2695, SPIFFS init bug
     // with unpinned tasks) - the core choice was arbitrary there.
     xTaskCreatePinnedToCore(&main_task, "main_task", 15000, NULL, 5, NULL, 1);
+
+    // LEDTREES: a silent hang becomes a panic with a coredump and a reboot
+    NF_HangWatchdog_Start();
 }
